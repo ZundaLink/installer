@@ -2,6 +2,21 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
+/// Create a Command with hidden console window on Windows
+#[cfg(target_os = "windows")]
+fn create_hidden_command(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+fn create_hidden_command(program: &str) -> Command {
+    Command::new(program)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsbDevice {
     pub device_path: String,
@@ -121,7 +136,7 @@ impl UsbDetector {
             "Get-CimInstance -ClassName Win32_DiskDrive | Where-Object {{ $_.MediaType -like '*Removable*' }} | ForEach-Object {{ $_.Model }}"
         );
         
-        if let Ok(output) = Command::new("powershell")
+        if let Ok(output) = create_hidden_command("powershell")
             .args(&["-Command", &ps_script])
             .output() {
             if output.status.success() {
@@ -141,7 +156,7 @@ impl UsbDetector {
             drive_letter.trim_end_matches(':')
         );
         
-        if let Ok(output) = Command::new("powershell")
+        if let Ok(output) = create_hidden_command("powershell")
             .args(&["-Command", &ps_script2])
             .output() {
             if output.status.success() {
@@ -157,7 +172,7 @@ impl UsbDetector {
             "wmic diskdrive where \"MediaType='Removable Media'\" get Model /value"
         );
         
-        if let Ok(output) = Command::new("cmd")
+        if let Ok(output) = create_hidden_command("cmd")
             .args(&["/C", &wmic_cmd])
             .output() {
             if output.status.success() {
@@ -179,7 +194,7 @@ impl UsbDetector {
     
     #[cfg(target_os = "linux")]
     fn detect_linux(&self) -> Result<Vec<UsbDevice>> {
-        let output = Command::new("lsblk")
+        let output = create_hidden_command("lsblk")
             .args(&["-J", "-o", "NAME,SIZE,TYPE,MODEL,TRAN,RM,MOUNTPOINT"])
             .output()?;
         
@@ -218,7 +233,7 @@ impl UsbDetector {
     
     #[cfg(target_os = "macos")]
     fn detect_macos(&self) -> Result<Vec<UsbDevice>> {
-        let output = Command::new("diskutil")
+        let output = create_hidden_command("diskutil")
             .args(&["list", "-external", "physical"])
             .output()?;
         
@@ -235,7 +250,7 @@ impl UsbDetector {
                         let device_path = parts[0].to_string();
                         
                         // Get disk info
-                        let info_output = Command::new("diskutil")
+                        let info_output = create_hidden_command("diskutil")
                             .args(&["info", "-plist", &device_path])
                             .output()?;
                         

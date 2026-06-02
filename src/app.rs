@@ -843,6 +843,13 @@ impl eframe::App for ZundaLinkApp {
                 ui.add_space(20.0);
                 ui.colored_label(egui::Color32::RED, format!("错误: {}", error));
             }
+
+            // Show build info at the bottom
+            ui.add_space(20.0);
+            ui.separator();
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::BOTTOM), |ui| {
+                ui.label(format!("{}", crate::build_info::FULL_VERSION));
+            });
         });
     }
 }

@@ -47,10 +47,10 @@ mod tests {
     #[test]
     fn test_parse_config() {
         let json_data = r#"{
-            "latest_version": "TEST_1.53.00",
+            "latest_version": "TEST_1.00.00",
             "version_list": [
                 {
-                    "name": "TEST_1.53.00",
+                    "name": "TEST_1.00.00",
                     "summary": "TEST-VERSION",
                     "install_list": [
                         {
@@ -65,8 +65,8 @@ mod tests {
         }"#;
         
         let config: InstallerConfig = serde_json::from_str(json_data).unwrap();
-        assert_eq!(config.latest_version, "TEST_1.53.00");
+        assert_eq!(config.latest_version, "TEST_1.00.00");
         assert_eq!(config.version_list.len(), 1);
-        assert_eq!(config.version_list[0].name, "TEST_1.53.00");
+        assert_eq!(config.version_list[0].name, "TEST_1.00.00");
     }
 }

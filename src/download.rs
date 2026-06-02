@@ -71,6 +71,14 @@ impl Downloader {
 
         fs::create_dir_all(&self.temp_dir)?;
 
+        // Handle empty file (size == 0)
+        if expected_size == 0 {
+            // Create empty file
+            File::create(&file_path)?;
+            self.send_progress(filename, 0, 0, DownloadStatus::Completed).await;
+            return Ok(file_path);
+        }
+
         // Check if file already exists and is valid
         if Path::new(&file_path).exists() {
             let metadata = fs::metadata(&file_path)?;
@@ -251,6 +259,12 @@ impl Downloader {
     }
 
     async fn verify_sha256(&self, file_path: &str, expected_hash: &str, filename: &str, file_size: u64) -> Result<bool> {
+        // Handle empty file (size == 0)
+        if file_size == 0 {
+            self.send_progress(filename, 0, 0, DownloadStatus::Completed).await;
+            return Ok(true);
+        }
+
         let mut file = File::open(file_path)?;
         let mut hasher = Sha256::new();
         let mut buffer = [0u8; 8192];

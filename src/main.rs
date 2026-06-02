@@ -1,35 +1,45 @@
+// Hide console window on Windows for GUI application
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use eframe::NativeOptions;
 
 mod app;
+mod build_info;
 mod config;
 mod download;
 mod usb;
 mod format;
 
 use app::ZundaLinkApp;
+use build_info::FULL_VERSION;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
-    
+
+    // Print build info at startup
+    log::info!("Starting ZundaLink Installer {}", FULL_VERSION);
+    log::info!("Build Hash: {}", build_info::BUILD_HASH);
+    log::info!("Build Time: {}", build_info::BUILD_TIME);
+
     // Load icon from embedded bytes
     let icon_data = load_icon();
-    
+
     let options = NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([800.0, 600.0])
+            .with_inner_size([600.0, 600.0])
             .with_min_inner_size([600.0, 400.0])
             .with_icon(icon_data),
         ..Default::default()
     };
-    
+
     eframe::run_native(
-        "ZundaLink Installer",
+        &format!("ZundaLink Installer {}", FULL_VERSION),
         options,
         Box::new(|cc| Box::new(ZundaLinkApp::new(cc))),
     )
     .map_err(|e| anyhow::anyhow!("Failed to run app: {}", e))?;
-    
+
     Ok(())
 }
 

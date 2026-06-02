@@ -7,6 +7,21 @@ use std::process::Command;
 /// Base64 encoded volume label
 const VOLUME_LABEL_B64: &str = "U0VHQV9JTlM=";
 
+/// Create a Command with hidden console window on Windows
+#[cfg(target_os = "windows")]
+fn create_hidden_command(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+fn create_hidden_command(program: &str) -> Command {
+    Command::new(program)
+}
+
 pub struct DiskFormatter;
 
 impl DiskFormatter {
@@ -80,7 +95,7 @@ impl DiskFormatter {
         log::info!("Running diskpart with script: {}", diskpart_script);
         
         // Step 3: Execute diskpart
-        let output = Command::new("diskpart")
+        let output = create_hidden_command("diskpart")
             .args(&["/s", script_path])
             .output()?;
         
@@ -123,7 +138,7 @@ impl DiskFormatter {
         
         log::info!("PowerShell script: {}", ps_script);
         
-        let output = Command::new("powershell")
+        let output = create_hidden_command("powershell")
             .args(&["-Command", &ps_script])
             .output()?;
         
@@ -145,7 +160,7 @@ impl DiskFormatter {
             drive_letter.to_ascii_uppercase()
         );
         
-        let output = Command::new("powershell")
+        let output = create_hidden_command("powershell")
             .args(&["-Command", &ps_script])
             .output()?;
         
@@ -172,8 +187,7 @@ impl DiskFormatter {
         };
         
         // Use wmic to find the disk number for this drive letter
-        // First, get the partition associated with the drive letter
-        let output = Command::new("wmic")
+        let output = create_hidden_command("wmic")
             .args(&[
                 "path",
                 "win32_logicaldisk",
@@ -186,14 +200,14 @@ impl DiskFormatter {
             .output()?;
         
         // Use diskpart to list disks and find the one with matching size
-        let output = Command::new("diskpart")
+        let output = create_hidden_command("diskpart")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
         
         // For now, use a more reliable method: get disk number from drive letter
         // by querying the partition -> disk relationship
-        let output = Command::new("wmic")
+        let output = create_hidden_command("wmic")
             .args(&[
                 "path",
                 "win32_logicaldisktopartition",
@@ -222,7 +236,7 @@ impl DiskFormatter {
         }
         
         // Alternative: use fsutil to get disk information
-        let output = Command::new("fsutil")
+        let output = create_hidden_command("fsutil")
             .args(&["fsinfo", "drives"])
             .output()?;
         
@@ -239,7 +253,7 @@ impl DiskFormatter {
             drive_letter.to_ascii_uppercase()
         );
         
-        let output = Command::new("powershell")
+        let output = create_hidden_command("powershell")
             .args(&["-Command", &ps_script])
             .output()?;
         
@@ -256,12 +270,12 @@ impl DiskFormatter {
     #[cfg(target_os = "linux")]
     fn format_linux(&self, device_path: &str) -> Result<String> {
         // Unmount the device if mounted
-        let _ = Command::new("umount")
+        let _ = create_hidden_command("umount")
             .arg(device_path)
             .output();
         
         // Create new partition table
-        let output = Command::new("parted")
+        let output = create_hidden_command("parted")
             .args(&["-s", device_path, "mklabel", "msdos"])
             .output()?;
         
@@ -270,7 +284,7 @@ impl DiskFormatter {
         }
         
         // Create primary partition
-        let output = Command::new("parted")
+        let output = create_hidden_command("parted")
             .args(&["-s", device_path, "mkpart", "primary", "fat32", "0%", "100%"])
             .output()?;
         
@@ -281,13 +295,13 @@ impl DiskFormatter {
         // Format as exFAT
         let partition_path = format!("{}1", device_path);
         let volume_label = Self::get_volume_label();
-        let output = Command::new("mkfs.exfat")
+        let output = create_hidden_command("mkfs.exfat")
             .args(&["-n", &volume_label, &partition_path])
             .output()?;
         
         if !output.status.success() {
             // Try mkexfatfs if mkfs.exfat is not available
-            let output = Command::new("mkexfatfs")
+            let output = create_hidden_command("mkexfatfs")
                 .args(&["-n", &volume_label, &partition_path])
                 .output()?;
             
@@ -300,7 +314,7 @@ impl DiskFormatter {
         let mount_point = "/mnt/zundalink";
         fs::create_dir_all(mount_point)?;
         
-        let output = Command::new("mount")
+        let output = create_hidden_command("mount")
             .args(&[&partition_path, mount_point])
             .output()?;
         
@@ -314,13 +328,13 @@ impl DiskFormatter {
     #[cfg(target_os = "macos")]
     fn format_macos(&self, device_path: &str) -> Result<String> {
         // Unmount the disk
-        let output = Command::new("diskutil")
+        let output = create_hidden_command("diskutil")
             .args(&["unmountDisk", device_path])
             .output()?;
         
         // Erase and format as ExFAT
         let volume_label = Self::get_volume_label();
-        let output = Command::new("diskutil")
+        let output = create_hidden_command("diskutil")
             .args(&[
                 "eraseDisk",
                 "ExFAT",
@@ -335,7 +349,7 @@ impl DiskFormatter {
         }
         
         // Get mount point
-        let output = Command::new("diskutil")
+        let output = create_hidden_command("diskutil")
             .args(&["info", "-plist", device_path])
             .output()?;
         
@@ -408,6 +422,17 @@ fn copy_file_with_progress<F>(
 where
     F: FnMut(CopyProgress),
 {
+    // Handle empty file (size == 0)
+    if total_size == 0 {
+        fs::File::create(target_path)?;
+        progress_callback(CopyProgress {
+            filename: filename.to_string(),
+            copied: 0,
+            total: 0,
+        });
+        return Ok(());
+    }
+
     let mut source = fs::File::open(source_path)?;
     let mut target = fs::File::create(target_path)?;
     
