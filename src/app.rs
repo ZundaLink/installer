@@ -821,7 +821,7 @@ impl eframe::App for ZundaLinkApp {
                     }
                 }
                 
-                AppState::Error(ref msg) => {
+                AppState::Error(msg) => {
                     ui.heading("[X] 错误");
                     ui.add_space(20.0);
                     
