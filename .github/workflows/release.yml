@@ -25,7 +25,7 @@ jobs:
       is_tag: ${{ steps.check_tag.outputs.IS_TAG }}
       exists: ${{ steps.check_release.outputs.exists }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check if this is a tag push
         id: check_tag
@@ -73,7 +73,7 @@ jobs:
     runs-on: windows-latest
     if: needs.check-version.outputs.exists != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -81,7 +81,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Cache cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -110,7 +110,7 @@ jobs:
           Copy-Item target/x86_64-pc-windows-msvc/release/zundalink-installer.exe dist/zundalink-installer-windows-x64.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-binary
           path: dist/zundalink-installer-windows-x64.exe
@@ -121,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     if: needs.check-version.outputs.exists != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -134,7 +134,7 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Cache cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -158,7 +158,7 @@ jobs:
           chmod +x dist/zundalink-installer-linux-x64
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linux-binary
           path: dist/zundalink-installer-linux-x64
@@ -169,7 +169,7 @@ jobs:
     runs-on: macos-latest
     if: needs.check-version.outputs.exists != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -177,7 +177,7 @@ jobs:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
       - name: Cache cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -214,19 +214,19 @@ jobs:
           chmod +x dist/zundalink-installer-macos-arm64
 
       - name: Upload universal binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: macos-universal-binary
           path: dist/zundalink-installer-macos-universal
 
       - name: Upload Intel binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: macos-intel-binary
           path: dist/zundalink-installer-macos-intel
 
       - name: Upload ARM binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: macos-arm-binary
           path: dist/zundalink-installer-macos-arm64
@@ -243,10 +243,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
