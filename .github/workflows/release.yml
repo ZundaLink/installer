@@ -1,0 +1,295 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v0.0.1)"
+        required: true
+        default: "v0.0.1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Check if version already exists
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+      exists: ${{ steps.check_release.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if release exists
+        id: check_release
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          echo "Checking if release $VERSION exists..."
+
+          # Try to get the release
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$VERSION")
+
+          if [ "$HTTP_STATUS" == "200" ]; then
+            echo "Release $VERSION already exists!"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Release $VERSION does not exist."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Build for Windows
+  build-windows:
+    needs: check-version
+    runs-on: windows-latest
+    if: needs.check-version.outputs.exists == 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Get build time
+        id: build_time
+        shell: pwsh
+        run: |
+          $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+          echo "SOURCE_DATE_EPOCH=$timestamp" >> $env:GITHUB_ENV
+
+      - name: Build Windows binary
+        shell: pwsh
+        run: |
+          $env:RUSTFLAGS="-C target-feature=+crt-static"
+          $env:SOURCE_DATE_EPOCH="${{ env.SOURCE_DATE_EPOCH }}"
+          cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/zundalink-installer.exe dist/zundalink-installer-windows-x64.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: dist/zundalink-installer-windows-x64.exe
+
+  # Build for Linux
+  build-linux:
+    needs: check-version
+    runs-on: ubuntu-latest
+    if: needs.check-version.outputs.exists == 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Get build time
+        id: build_time
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Build Linux binary
+        run: |
+          SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }} cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/zundalink-installer dist/zundalink-installer-linux-x64
+          chmod +x dist/zundalink-installer-linux-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: dist/zundalink-installer-linux-x64
+
+  # Build for macOS (Intel and ARM)
+  build-macos:
+    needs: check-version
+    runs-on: macos-latest
+    if: needs.check-version.outputs.exists == 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Get build time
+        id: build_time
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Build macOS Intel binary
+        run: |
+          SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }} cargo build --release --target x86_64-apple-darwin
+
+      - name: Build macOS ARM binary
+        run: |
+          SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }} cargo build --release --target aarch64-apple-darwin
+
+      - name: Create universal binary
+        run: |
+          mkdir -p dist
+          lipo -create -output dist/zundalink-installer-macos-universal \
+            target/x86_64-apple-darwin/release/zundalink-installer \
+            target/aarch64-apple-darwin/release/zundalink-installer
+          chmod +x dist/zundalink-installer-macos-universal
+
+      - name: Prepare individual artifacts
+        run: |
+          cp target/x86_64-apple-darwin/release/zundalink-installer dist/zundalink-installer-macos-intel
+          cp target/aarch64-apple-darwin/release/zundalink-installer dist/zundalink-installer-macos-arm64
+          chmod +x dist/zundalink-installer-macos-intel
+          chmod +x dist/zundalink-installer-macos-arm64
+
+      - name: Upload universal binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-binary
+          path: dist/zundalink-installer-macos-universal
+
+      - name: Upload Intel binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-binary
+          path: dist/zundalink-installer-macos-intel
+
+      - name: Upload ARM binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm-binary
+          path: dist/zundalink-installer-macos-arm64
+
+  # Create Release and upload all binaries
+  release:
+    needs: [check-version, build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    if: needs.check-version.outputs.exists == 'false' && always() && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          cp artifacts/windows-binary/zundalink-installer-windows-x64.exe release/
+          cp artifacts/linux-binary/zundalink-installer-linux-x64 release/
+          cp artifacts/macos-universal-binary/zundalink-installer-macos-universal release/
+          cp artifacts/macos-intel-binary/zundalink-installer-macos-intel release/
+          cp artifacts/macos-arm-binary/zundalink-installer-macos-arm64 release/
+          cd release
+          sha256sum * > checksums.txt
+
+      - name: Get version from Makefile
+        id: makefile_version
+        run: |
+          VERSION=$(grep "^VERSION :=" Makefile | cut -d'=' -f2 | tr -d ' ')
+          echo "MAKEFILE_VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ needs.check-version.outputs.version }}
+          tag_name: ${{ needs.check-version.outputs.version }}
+          body: |
+            ## ZundaLink Installer ${{ needs.check-version.outputs.version }}
+
+            Makefile Version: ${{ steps.makefile_version.outputs.MAKEFILE_VERSION }}
+
+            ### 下载
+
+            | 平台 | 文件 |
+            |------|------|
+            | Windows x64 | `zundalink-installer-windows-x64.exe` |
+            | Linux x64 | `zundalink-installer-linux-x64` |
+            | macOS Universal | `zundalink-installer-macos-universal` |
+            | macOS Intel | `zundalink-installer-macos-intel` |
+            | macOS ARM64 | `zundalink-installer-macos-arm64` |
+
+            ### 校验和
+
+            请查看 `checksums.txt` 文件验证下载文件的完整性。
+          files: |
+            release/zundalink-installer-windows-x64.exe
+            release/zundalink-installer-linux-x64
+            release/zundalink-installer-macos-universal
+            release/zundalink-installer-macos-intel
+            release/zundalink-installer-macos-arm64
+            release/checksums.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Skip release if version exists
+  skip-release:
+    needs: check-version
+    runs-on: ubuntu-latest
+    if: needs.check-version.outputs.exists == 'true'
+    steps:
+      - name: Skip release
+        run: |
+          echo "Release ${{ needs.check-version.outputs.version }} already exists. Skipping build and release."
+          exit 0
