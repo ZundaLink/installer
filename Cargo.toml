@@ -1,0 +1,78 @@
+[package]
+name = "zundalink-installer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# GUI Framework
+egui = { version = "0.24", features = ["default_fonts"] }
+eframe = { version = "0.24", features = ["default"] }
+
+# Font support
+font-kit = "0.11"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["stream", "json"] }
+
+# Futures
+futures-util = "0.3"
+tokio-util = "0.7"
+
+# JSON serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async trait
+async-trait = "0.1"
+
+# Progress bar styling
+indicatif = "0.17"
+
+# SHA256 hashing
+sha2 = "0.10"
+hex = "0.4"
+
+# File operations
+tempfile = "3.9"
+walkdir = "2.4"
+rfd = "0.12"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Base64 encoding/decoding
+base64 = "0.21"
+
+# Cross-platform disk/drive detection
+sysinfo = "0.30"
+
+# Image processing for icon
+image = { version = "0.24", default-features = false, features = ["png"] }
+
+# Windows-specific dependencies (for disk management)
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["fileapi", "handleapi", "ioapiset", "winioctl", "winnt", "winbase", "winuser", "setupapi", "cfgmgr32", "guiddef"] }
+windows = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_Foundation", "Win32_System_WindowsProgramming"] }
+
+# Linux/Mac specific dependencies
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.27", features = ["fs", "ioctl"] }
+
+[build-dependencies]
+winres = "0.1"
+
+[package.metadata.winres]
+OriginalFilename = "zundalink-installer.exe"
+LegalCopyright = "Copyright © 2024"
+
+[profile.release]
+opt-level = 3
+lto = true
