@@ -65,6 +65,7 @@ windows = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_Sys
 # Linux/Mac specific dependencies
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", features = ["fs", "ioctl"] }
+libc = "0.2"
 
 [build-dependencies]
 winres = "0.1"
