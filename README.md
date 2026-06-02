@@ -4,7 +4,7 @@ Zundalink Installer
 
 # Download
 
-[Latest Release](https://github.com/WeclontCode/Rust/zundalink-installer/releases/latest)
+[Latest Release](https://github.com/Zundalink/installer/releases/latest)
 
 # Development
 
