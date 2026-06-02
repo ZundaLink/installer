@@ -7,8 +7,9 @@ mod app;
 mod build_info;
 mod config;
 mod download;
-mod usb;
 mod format;
+mod i18n;
+mod usb;
 
 use app::ZundaLinkApp;
 use build_info::FULL_VERSION;

@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 use crate::config::{InstallerConfig, VersionInfo};
 use crate::download::{download_all_files, DownloadProgress, DownloadStatus};
 use crate::format::{copy_files_to_drive_with_progress, CopyProgress, DiskFormatter};
+use crate::i18n::{I18n, Language, keys};
 use crate::usb::{UsbDetector, UsbDevice};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,16 +58,24 @@ pub struct ZundaLinkApp {
     skip_verify_tx: Option<mpsc::Sender<bool>>,
     show_skip_verify_dialog: bool,
     verifying_filename: Option<String>,
+
+    // i18n
+    i18n: I18n,
+    show_language_settings: bool,
 }
 
 impl ZundaLinkApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Configure fonts for Chinese support
         Self::configure_fonts(&cc.egui_ctx);
-        
+
+        // Initialize i18n with system language detection
+        let i18n = I18n::detect();
+        log::info!("Detected system language: {:?}", i18n.current_language());
+
         let (_progress_tx, progress_rx) = mpsc::channel(100);
         let runtime = tokio::runtime::Handle::current();
-        
+
         let mut app = Self {
             state: AppState::Loading,
             config: None,
@@ -95,11 +104,13 @@ impl ZundaLinkApp {
             skip_verify_tx: None,
             show_skip_verify_dialog: false,
             verifying_filename: None,
+            i18n,
+            show_language_settings: false,
         };
-        
+
         // Start loading config
         app.load_config();
-        
+
         app
     }
     
@@ -226,8 +237,13 @@ impl eframe::App for ZundaLinkApp {
                         self.state = AppState::VersionSelection;
                     }
                     Err(e) => {
-                        self.error_message = Some(format!("加载配置失败: {}", e));
-                        self.state = AppState::Error(e);
+                        let error_msg = if self.i18n.current_language() == Language::ZhCN {
+                            format!("加载配置失败: {}", e)
+                        } else {
+                            format!("Failed to load config: {}", e)
+                        };
+                        self.error_message = Some(error_msg.clone());
+                        self.state = AppState::Error(error_msg);
                     }
                 }
                 self.config_rx = None;
@@ -263,7 +279,12 @@ impl eframe::App for ZundaLinkApp {
                             self.usb_devices = devices;
                         }
                         Err(e) => {
-                            self.error_message = Some(format!("检测U盘失败: {}", e));
+                            let error_msg = if self.i18n.current_language() == Language::ZhCN {
+                                format!("检测U盘失败: {}", e)
+                            } else {
+                                format!("Failed to detect USB: {}", e)
+                            };
+                            self.error_message = Some(error_msg);
                         }
                     }
                     self.usb_rx = None;
@@ -340,17 +361,21 @@ impl eframe::App for ZundaLinkApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             match &self.state {
                 AppState::Loading => {
-                    ui.heading("ZundaLink Installer");
+                    ui.heading(self.i18n.t(keys::LOADING_TITLE));
                     ui.add_space(20.0);
-                    ui.label("正在加载配置...");
+                    ui.label(self.i18n.t(keys::LOADING_MESSAGE));
                     ui.spinner();
                 }
                 
                 AppState::VersionSelection => {
                     ui.horizontal(|ui| {
-                        ui.heading("选择安装版本");
+                        ui.heading(self.i18n.t(keys::VERSION_SELECTION_TITLE));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🔄 刷新").clicked() {
+                            // Language settings button
+                            if ui.button("🌐").clicked() {
+                                self.show_language_settings = true;
+                            }
+                            if ui.button(self.i18n.t(keys::BUTTON_REFRESH)).clicked() {
                                 self.state = AppState::Loading;
                                 self.config = None;
                                 self.selected_version = None;
@@ -361,7 +386,7 @@ impl eframe::App for ZundaLinkApp {
                     ui.add_space(20.0);
 
                     if let Some(ref config) = self.config {
-                        ui.label("可用版本:");
+                        ui.label(self.i18n.t(keys::AVAILABLE_VERSIONS));
 
                         for version in &config.version_list {
                             let is_selected = self.selected_version.as_ref()
@@ -381,7 +406,7 @@ impl eframe::App for ZundaLinkApp {
                                     }
                                     ui.label(&version.summary);
                                     if version.name == config.latest_version {
-                                        ui.colored_label(egui::Color32::GREEN, "(最新)");
+                                        ui.colored_label(egui::Color32::GREEN, self.i18n.t(keys::LATEST_TAG));
                                     }
                                 });
                             });
@@ -391,22 +416,22 @@ impl eframe::App for ZundaLinkApp {
 
                         // Temp directory setting
                         ui.group(|ui| {
-                            ui.label("临时文件目录:");
+                            ui.label(self.i18n.t(keys::TEMP_DIR_LABEL));
                             ui.horizontal(|ui| {
                                 ui.text_edit_singleline(&mut self.temp_dir);
-                                if ui.button("选择目录").clicked() {
+                                if ui.button(self.i18n.t(keys::BUTTON_SELECT_DIR)).clicked() {
                                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                                         self.temp_dir = path.to_string_lossy().to_string();
                                     }
                                 }
                             });
-                            ui.label("下载的文件将保存在此目录");
+                            ui.label(self.i18n.t(keys::TEMP_DIR_HINT));
                         });
 
                         ui.add_space(20.0);
 
                         if self.selected_version.is_some() {
-                            if ui.button("下一步 →").clicked() {
+                            if ui.button(self.i18n.t(keys::BUTTON_NEXT)).clicked() {
                                 // Check disk space before proceeding
                                 if let Some(ref version) = self.selected_version {
                                     self.required_space = version.install_list.iter().map(|f| f.size).sum();
@@ -430,23 +455,23 @@ impl eframe::App for ZundaLinkApp {
 
                     // Disk space warning dialog
                     if self.show_disk_space_warning {
-                        egui::Window::new("[!] 磁盘空间不足")
+                        egui::Window::new(self.i18n.t(keys::DISK_SPACE_WARNING_TITLE))
                             .collapsible(false)
                             .resizable(false)
                             .show(ctx, |ui| {
                                 ui.colored_label(
                                     egui::Color32::RED,
-                                    "临时目录所在磁盘空间不足！"
+                                    self.i18n.t(keys::DISK_SPACE_WARNING_MESSAGE)
                                 );
-                                ui.label(format!("所需空间: {:.2} GB", self.required_space as f64 / (1024.0 * 1024.0 * 1024.0)));
-                                ui.label(format!("可用空间: {:.2} GB", self.available_space as f64 / (1024.0 * 1024.0 * 1024.0)));
+                                ui.label(format!("{} {:.2} GB", self.i18n.t(keys::REQUIRED_SPACE), self.required_space as f64 / (1024.0 * 1024.0 * 1024.0)));
+                                ui.label(format!("{} {:.2} GB", self.i18n.t(keys::AVAILABLE_SPACE), self.available_space as f64 / (1024.0 * 1024.0 * 1024.0)));
                                 ui.add_space(10.0);
-                                ui.label("请选择其他有足够空间的目录。");
+                                ui.label(self.i18n.t(keys::SELECT_OTHER_DIR));
 
                                 ui.add_space(10.0);
 
                                 ui.horizontal(|ui| {
-                                    if ui.button("选择其他目录").clicked() {
+                                    if ui.button(self.i18n.t(keys::SELECT_OTHER_DIR)).clicked() {
                                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
                                             self.temp_dir = path.to_string_lossy().to_string();
                                             // Recheck space
@@ -460,8 +485,34 @@ impl eframe::App for ZundaLinkApp {
                                             }
                                         }
                                     }
-                                    if ui.button("取消").clicked() {
+                                    if ui.button(self.i18n.t(keys::BUTTON_CANCEL)).clicked() {
                                         self.show_disk_space_warning = false;
+                                    }
+                                });
+                            });
+                    }
+
+                    // Language settings dialog
+                    if self.show_language_settings {
+                        egui::Window::new(self.i18n.t(keys::LANGUAGE_SETTINGS))
+                            .collapsible(false)
+                            .resizable(false)
+                            .show(ctx, |ui| {
+                                ui.label(self.i18n.t(keys::LANGUAGE_LABEL));
+                                ui.add_space(10.0);
+
+                                for lang in Language::all() {
+                                    let is_selected = self.i18n.current_language() == *lang;
+                                    if ui.radio(is_selected, lang.display_name()).clicked() && !is_selected {
+                                        self.i18n.set_language(*lang);
+                                        log::info!("Language changed to: {:?}", lang);
+                                    }
+                                }
+
+                                ui.add_space(10.0);
+                                ui.horizontal(|ui| {
+                                    if ui.button(self.i18n.t(keys::BUTTON_CANCEL)).clicked() {
+                                        self.show_language_settings = false;
                                     }
                                 });
                             });
@@ -469,23 +520,23 @@ impl eframe::App for ZundaLinkApp {
                 }
                 
                 AppState::UsbSelection => {
-                    ui.heading("选择目标U盘");
+                    ui.heading(self.i18n.t(keys::USB_SELECTION_TITLE));
                     ui.add_space(20.0);
-                    
+
                     ui.colored_label(
                         egui::Color32::YELLOW,
-                        "[!] 警告：此操作将格式化选中的U盘并清除所有数据！"
+                        self.i18n.t(keys::USB_WARNING)
                     );
-                    
+
                     ui.add_space(20.0);
-                    
+
                     if self.usb_devices.is_empty() {
-                        ui.label("未检测到U盘设备。请手动输入盘符:");
+                        ui.label(self.i18n.t(keys::NO_USB_DETECTED));
                         ui.text_edit_singleline(&mut self.manual_drive_letter);
-                        ui.label("例如: Q 或 Q:");
+                        ui.label(self.i18n.t(keys::MANUAL_DRIVE_EXAMPLE));
                     } else {
-                        ui.label("检测到的U盘设备:");
-                        
+                        ui.label(self.i18n.t(keys::USB_DETECTED_DEVICES));
+
                         for device in &self.usb_devices {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
@@ -510,45 +561,45 @@ impl eframe::App for ZundaLinkApp {
                             });
                         }
                     }
-                    
+
                     ui.add_space(20.0);
-                    
+
                     ui.horizontal(|ui| {
-                        if ui.button("← 返回").clicked() {
+                        if ui.button(self.i18n.t(keys::BUTTON_BACK)).clicked() {
                             self.state = AppState::VersionSelection;
                         }
-                        
-                        let can_proceed = self.selected_usb.is_some() 
+
+                        let can_proceed = self.selected_usb.is_some()
                             || !self.manual_drive_letter.is_empty();
-                        
-                        if can_proceed && ui.button("下一步 →").clicked() {
+
+                        if can_proceed && ui.button(self.i18n.t(keys::BUTTON_NEXT)).clicked() {
                             self.show_format_warning = true;
                         }
                     });
-                    
+
                     // Format warning dialog
                     if self.show_format_warning {
-                        egui::Window::new("[!] 重要警告")
+                        egui::Window::new(self.i18n.t(keys::FORMAT_WARNING_TITLE))
                             .collapsible(false)
                             .resizable(false)
                             .show(ctx, |ui| {
                                 ui.colored_label(
                                     egui::Color32::RED,
-                                    "此操作将格式化U盘并删除所有数据！"
+                                    self.i18n.t(keys::FORMAT_WARNING_MESSAGE)
                                 );
-                                ui.label("请确认您已备份重要数据。");
-                                
-                                ui.checkbox(&mut self.format_confirmed, "我已了解风险并确认继续");
-                                
+                                ui.label(self.i18n.t(keys::FORMAT_BACKUP_NOTICE));
+
+                                ui.checkbox(&mut self.format_confirmed, self.i18n.t(keys::FORMAT_CONFIRM_CHECK));
+
                                 ui.add_space(10.0);
-                                
+
                                 ui.horizontal(|ui| {
-                                    if ui.button("取消").clicked() {
+                                    if ui.button(self.i18n.t(keys::BUTTON_CANCEL)).clicked() {
                                         self.show_format_warning = false;
                                         self.format_confirmed = false;
                                     }
-                                    
-                                    if self.format_confirmed && ui.button("确认继续").clicked() {
+
+                                    if self.format_confirmed && ui.button(self.i18n.t(keys::BUTTON_CONFIRM)).clicked() {
                                         self.show_format_warning = false;
                                         self.state = AppState::Downloading;
                                         self.start_download();
@@ -559,24 +610,24 @@ impl eframe::App for ZundaLinkApp {
                 }
                 
                 AppState::Downloading => {
-                    ui.heading("下载安装文件");
+                    ui.heading(self.i18n.t(keys::DOWNLOADING_TITLE));
                     ui.add_space(20.0);
-                    
+
                     // Show skip verification confirmation dialog
                     if self.show_skip_verify_dialog {
-                        egui::Window::new("确认跳过校验")
+                        egui::Window::new(self.i18n.t(keys::SKIP_VERIFY_TITLE))
                             .collapsible(false)
                             .resizable(false)
                             .show(ctx, |ui| {
-                                ui.label("确定要跳过文件校验吗？");
-                                ui.label("跳过校验可能会导致安装损坏的文件。");
+                                ui.label(self.i18n.t(keys::SKIP_VERIFY_MESSAGE));
+                                ui.label(self.i18n.t(keys::SKIP_VERIFY_CONFIRM));
                                 ui.add_space(10.0);
                                 ui.horizontal(|ui| {
-                                    if ui.button("取消").clicked() {
+                                    if ui.button(self.i18n.t(keys::BUTTON_CANCEL)).clicked() {
                                         self.show_skip_verify_dialog = false;
                                         self.verifying_filename = None;
                                     }
-                                    if ui.button("确定跳过").clicked() {
+                                    if ui.button(self.i18n.t(keys::BUTTON_CONFIRM)).clicked() {
                                         // Send skip signal
                                         if let Some(ref tx) = self.skip_verify_tx {
                                             let _ = tx.try_send(true);
@@ -587,15 +638,15 @@ impl eframe::App for ZundaLinkApp {
                                 });
                             });
                     }
-                    
+
                     if self.download_progress.is_empty() {
-                        ui.label("准备下载...");
+                        ui.label(self.i18n.t(keys::PREPARING_DOWNLOAD));
                         ui.spinner();
                     } else {
                         for progress in &self.download_progress {
                             ui.group(|ui| {
                                 ui.label(&progress.filename);
-                                
+
                                 // Show different progress bar based on status
                                 match &progress.status {
                                     DownloadStatus::Verifying => {
@@ -603,22 +654,23 @@ impl eframe::App for ZundaLinkApp {
                                         ui.horizontal(|ui| {
                                             let verify_percent = progress.verify_progress * 100.0;
                                             let verify_text = format!(
-                                                "校验中: {:.1}%",
+                                                "{}: {:.1}%",
+                                                self.i18n.t(keys::VERIFYING),
                                                 verify_percent
                                             );
                                             ui.add(egui::ProgressBar::new(progress.verify_progress)
                                                 .text(verify_text)
                                                 .desired_width(ui.available_width() - 120.0));
-                                            
+
                                             // Show skip button
-                                            if ui.button("跳过当前文件校验").clicked() {
+                                            if ui.button(self.i18n.t(keys::SKIP_CURRENT_VERIFY)).clicked() {
                                                 self.verifying_filename = Some(progress.filename.clone());
                                                 self.show_skip_verify_dialog = true;
                                             }
                                         });
                                     }
                                     DownloadStatus::Skipped => {
-                                        ui.colored_label(egui::Color32::YELLOW, "已跳过校验");
+                                        ui.colored_label(egui::Color32::YELLOW, self.i18n.t(keys::VERIFY_SKIPPED));
                                     }
                                     _ => {
                                         // Show download progress
@@ -627,16 +679,16 @@ impl eframe::App for ZundaLinkApp {
                                         } else {
                                             0.0
                                         };
-                                        
+
                                         let status_text = match &progress.status {
-                                            DownloadStatus::Pending => "等待中",
-                                            DownloadStatus::Downloading => "下载中",
-                                            DownloadStatus::Verifying => "校验中",
-                                            DownloadStatus::Completed => "完成",
-                                            DownloadStatus::Failed(_) => "失败",
-                                            DownloadStatus::Skipped => "已跳过校验",
+                                            DownloadStatus::Pending => self.i18n.t(keys::STATUS_PENDING),
+                                            DownloadStatus::Downloading => self.i18n.t(keys::STATUS_DOWNLOADING),
+                                            DownloadStatus::Verifying => self.i18n.t(keys::VERIFYING),
+                                            DownloadStatus::Completed => self.i18n.t(keys::STATUS_COMPLETED),
+                                            DownloadStatus::Failed(_) => self.i18n.t(keys::STATUS_FAILED),
+                                            DownloadStatus::Skipped => self.i18n.t(keys::VERIFY_SKIPPED),
                                         };
-                                        
+
                                         let progress_text = format!(
                                             "{:.1}% ({:.2} MB / {:.2} MB) - {}",
                                             percent,
@@ -644,35 +696,35 @@ impl eframe::App for ZundaLinkApp {
                                             progress.total as f32 / (1024.0 * 1024.0),
                                             status_text
                                         );
-                                        
+
                                         ui.add(egui::ProgressBar::new(percent / 100.0)
                                             .text(progress_text));
                                     }
                                 }
                             });
                         }
-                        
+
                         // Check if all downloads are complete (including skipped)
                         let all_complete = self.download_progress.iter()
                             .all(|p| matches!(p.status, DownloadStatus::Completed | DownloadStatus::Skipped));
-                        
+
                         let any_failed = self.download_progress.iter()
                             .any(|p| matches!(p.status, DownloadStatus::Failed(_)));
-                        
+
                         if all_complete {
                             ui.add_space(20.0);
-                            ui.colored_label(egui::Color32::GREEN, "[OK] 所有文件下载完成！");
+                            ui.colored_label(egui::Color32::GREEN, self.i18n.t(keys::DOWNLOAD_COMPLETE));
                             ui.add_space(10.0);
-                            if ui.button("下一步：格式化U盘 →").clicked() {
+                            if ui.button(self.i18n.t(keys::NEXT_STEP_FORMAT)).clicked() {
                                 self.state = AppState::FormatConfirmation;
                             }
                         } else if any_failed {
                             ui.add_space(20.0);
-                            ui.colored_label(egui::Color32::RED, "[X] 部分文件下载失败");
-                            
+                            ui.colored_label(egui::Color32::RED, self.i18n.t(keys::DOWNLOAD_FAILED));
+
                             // Show detailed error for each failed file
                             ui.add_space(10.0);
-                            ui.label("失败详情:");
+                            ui.label(self.i18n.t(keys::ERROR_DETAILS));
                             for progress in &self.download_progress {
                                 if let DownloadStatus::Failed(ref error) = progress.status {
                                     ui.horizontal(|ui| {
@@ -681,32 +733,32 @@ impl eframe::App for ZundaLinkApp {
                                     });
                                 }
                             }
-                            
+
                             // Show help message for 403 errors
                             let has_403 = self.download_progress.iter()
                                 .any(|p| matches!(p.status, DownloadStatus::Failed(ref e) if e.contains("403")));
-                            
+
                             if has_403 {
                                 ui.add_space(15.0);
                                 ui.group(|ui| {
-                                    ui.colored_label(egui::Color32::YELLOW, "[i] 提示:");
-                                    ui.label("遇到 403 错误通常表示:");
-                                    ui.label("• 下载链接已过期");
-                                    ui.label("• 需要更新安装器版本");
-                                    ui.label("• 服务器限制了访问");
+                                    ui.colored_label(egui::Color32::YELLOW, self.i18n.t(keys::TIP_TITLE));
+                                    ui.label(self.i18n.t(keys::TIP_403_ERROR));
+                                    ui.label(self.i18n.t(keys::TIP_403_CAUSE_1));
+                                    ui.label(self.i18n.t(keys::TIP_403_CAUSE_2));
+                                    ui.label(self.i18n.t(keys::TIP_403_CAUSE_3));
                                     ui.add_space(5.0);
-                                    ui.label("建议: 请检查是否有新版本安装器，或稍后重试。");
+                                    ui.label(self.i18n.t(keys::TIP_403_SUGGESTION));
                                 });
                             }
-                            
+
                             ui.add_space(20.0);
                             ui.horizontal(|ui| {
-                                if ui.button("← 返回版本选择").clicked() {
+                                if ui.button(self.i18n.t(keys::BUTTON_BACK)).clicked() {
                                     // Reset all state including version and USB selection
                                     self.reset_all_state();
                                     self.state = AppState::VersionSelection;
                                 }
-                                if ui.button("[重试] 重新下载").clicked() {
+                                if ui.button(self.i18n.t(keys::BUTTON_RETRY)).clicked() {
                                     self.reset_download_state();
                                     self.start_download();
                                 }
@@ -716,35 +768,35 @@ impl eframe::App for ZundaLinkApp {
                 }
                 
                 AppState::FormatConfirmation => {
-                    ui.heading("最终确认");
+                    ui.heading(self.i18n.t(keys::FORMAT_CONFIRMATION_TITLE));
                     ui.add_space(20.0);
-                    
+
                     ui.colored_label(
                         egui::Color32::RED,
-                        "[!] 最后一次警告！"
+                        self.i18n.t(keys::FINAL_WARNING)
                     );
-                    
-                    ui.label("即将执行以下操作:");
-                    ui.label("1. 清除U盘所有分区和数据");
-                    ui.label("2. 创建新的exFAT分区");
-                    ui.label("3. 设置卷标");
-                    ui.label("4. 分配盘符为 Q:");
-                    ui.label("5. 复制安装文件到U盘");
-                    
+
+                    ui.label(self.i18n.t(keys::OPERATIONS_LIST));
+                    ui.label(self.i18n.t(keys::OP_CLEAR_PARTITIONS));
+                    ui.label(self.i18n.t(keys::OP_CREATE_EXFAT));
+                    ui.label(self.i18n.t(keys::OP_SET_LABEL));
+                    ui.label(self.i18n.t(keys::OP_ASSIGN_LETTER));
+                    ui.label(self.i18n.t(keys::OP_COPY_FILES));
+
                     ui.add_space(20.0);
-                    
+
                     if let Some(ref usb) = self.selected_usb {
-                        ui.label(format!("目标设备: {}", usb.model));
+                        ui.label(format!("{} {}", self.i18n.t(keys::TARGET_DEVICE), usb.model));
                     }
-                    
+
                     ui.add_space(20.0);
-                    
+
                     ui.horizontal(|ui| {
-                        if ui.button("← 返回").clicked() {
+                        if ui.button(self.i18n.t(keys::BUTTON_BACK)).clicked() {
                             self.state = AppState::UsbSelection;
                         }
-                        
-                        if ui.button("开始格式化并安装").clicked() {
+
+                        if ui.button(self.i18n.t(keys::START_FORMAT)).clicked() {
                             self.state = AppState::Formatting;
                             self.format_and_install();
                         }
@@ -752,85 +804,85 @@ impl eframe::App for ZundaLinkApp {
                 }
                 
                 AppState::Formatting => {
-                    ui.heading("正在格式化U盘...");
+                    ui.heading(self.i18n.t(keys::FORMATTING_TITLE));
                     ui.add_space(20.0);
                     ui.spinner();
-                    ui.label("请稍候，正在清除分区并创建新分区...");
+                    ui.label(self.i18n.t(keys::FORMATTING_MESSAGE));
                     ui.add_space(10.0);
-                    ui.label("此过程可能需要几分钟，请勿拔出U盘。");
-                    
+                    ui.label(self.i18n.t(keys::FORMATTING_WARNING));
+
                     if !self.format_copy_status.is_empty() {
                         ui.add_space(10.0);
-                        ui.label(format!("状态: {}", self.format_copy_status));
+                        ui.label(format!("{} {}", self.i18n.t(keys::STATUS_LABEL), self.format_copy_status));
                     }
                 }
                 
                 AppState::Copying => {
-                    ui.heading("正在复制文件...");
+                    ui.heading(self.i18n.t(keys::COPYING_TITLE));
                     ui.add_space(20.0);
                     ui.spinner();
-                    ui.label("正在将安装文件复制到U盘...");
+                    ui.label(self.i18n.t(keys::COPYING_MESSAGE));
                     ui.add_space(10.0);
-                    
+
                     // Display copy progress for each file
                     for progress in &self.copy_progress {
                         ui.group(|ui| {
                             ui.label(&progress.filename);
-                            
+
                             let percent = if progress.total > 0 {
                                 (progress.copied as f32 / progress.total as f32) * 100.0
                             } else {
                                 0.0
                             };
-                            
+
                             let progress_text = format!(
                                 "{:.1}% ({:.2} MB / {:.2} MB)",
                                 percent,
                                 progress.copied as f32 / (1024.0 * 1024.0),
                                 progress.total as f32 / (1024.0 * 1024.0)
                             );
-                            
+
                             ui.add(egui::ProgressBar::new(percent / 100.0)
                                 .text(progress_text));
                         });
                     }
-                    
+
                     // Show current file being copied
                     if !self.current_copy_file.is_empty() {
                         ui.add_space(10.0);
-                        ui.label(format!("当前文件: {}", self.current_copy_file));
+                        ui.label(format!("{} {}", self.i18n.t(keys::CURRENT_FILE), self.current_copy_file));
                     }
                 }
                 
                 AppState::Completed => {
-                    ui.heading("[OK] 安装完成！");
+                    ui.heading(self.i18n.t(keys::COMPLETED_TITLE));
                     ui.add_space(20.0);
-                    
+
                     ui.colored_label(
                         egui::Color32::GREEN,
-                        "ZundaLink 安装U盘制作成功！"
+                        self.i18n.t(keys::COMPLETED_MESSAGE)
                     );
-                    
-                    ui.label("您的U盘现在可以用于安装 ZundaLink 系统。");
-                    
+
+                    ui.label(self.i18n.t(keys::COMPLETED_SUBMESSAGE));
+
                     ui.add_space(20.0);
-                    
-                    if ui.button("← 返回主页面").clicked() {
+
+                    if ui.button(self.i18n.t(keys::RETURN_HOME)).clicked() {
                         self.reset_all_state();
                         self.state = AppState::VersionSelection;
                     }
                 }
                 
                 AppState::Error(msg) => {
-                    ui.heading("[X] 错误");
+                    ui.heading(self.i18n.t(keys::ERROR_TITLE));
                     ui.add_space(20.0);
-                    
+
                     ui.colored_label(egui::Color32::RED, msg);
-                    
+
                     ui.add_space(20.0);
-                    
+
                     ui.horizontal(|ui| {
-                        if ui.button("← 返回主页面").clicked() {
+                        if ui.button(self.i18n.t(keys::RETURN_HOME)).clicked() {
                             self.reset_all_state();
                             self.state = AppState::VersionSelection;
                         }
@@ -841,7 +893,7 @@ impl eframe::App for ZundaLinkApp {
             // Show error message if any
             if let Some(ref error) = self.error_message {
                 ui.add_space(20.0);
-                ui.colored_label(egui::Color32::RED, format!("错误: {}", error));
+                ui.colored_label(egui::Color32::RED, format!("{} {}", self.i18n.t(keys::ERROR_PREFIX), error));
             }
 
             // Show build info at the bottom
@@ -939,7 +991,7 @@ impl ZundaLinkApp {
                 let letter = manual_drive.trim_end_matches(':').to_ascii_uppercase();
                 format!("\\\\.\\{}:", letter)
             } else {
-                let _ = tx.send(Err("未选择U盘设备".to_string())).await;
+                let _ = tx.send(Err("No USB device selected".to_string())).await;
                 return;
             };
             
@@ -951,11 +1003,11 @@ impl ZundaLinkApp {
             match formatter.format_usb_drive(&device_path, Some("Q:")) {
                 Ok(target_drive) => {
                     log::info!("Format completed: {}", target_drive);
-                    let _ = tx.send(Ok(format!("格式化完成: {}", target_drive))).await;
+                    let _ = tx.send(Ok(format!("Format completed: {}", target_drive))).await;
                 }
                 Err(e) => {
                     log::error!("Format failed: {}", e);
-                    let _ = tx.send(Err(format!("格式化失败: {}", e))).await;
+                    let _ = tx.send(Err(format!("Format failed: {}", e))).await;
                 }
             }
         });
@@ -981,12 +1033,12 @@ impl ZundaLinkApp {
         // Spawn copy task
         runtime.spawn(async move {
             if downloaded_files.is_empty() {
-                let _ = tx.send(Err("没有可复制的文件".to_string())).await;
+                let _ = tx.send(Err("No files to copy".to_string())).await;
                 return;
             }
-            
+
             log::info!("Starting copy of {} files to Q:\\", downloaded_files.len());
-            
+
             // Use copy with progress tracking
             let progress_tx = progress_tx.clone();
             match copy_files_to_drive_with_progress(&downloaded_files, "Q:", move |progress| {
@@ -994,11 +1046,11 @@ impl ZundaLinkApp {
             }) {
                 Ok(()) => {
                     log::info!("Copy completed successfully");
-                    let _ = tx.send(Ok(format!("已复制 {} 个文件", downloaded_files.len()))).await;
+                    let _ = tx.send(Ok(format!("Copied {} files", downloaded_files.len()))).await;
                 }
                 Err(e) => {
                     log::error!("Copy failed: {}", e);
-                    let _ = tx.send(Err(format!("复制失败: {}", e))).await;
+                    let _ = tx.send(Err(format!("Copy failed: {}", e))).await;
                 }
             }
         });
