@@ -261,25 +261,17 @@ jobs:
           cd release
           sha256sum * > checksums.txt
 
-      - name: Get version from Makefile
-        id: makefile_version
-        run: |
-          VERSION=$(grep "^VERSION :=" Makefile | cut -d'=' -f2 | tr -d ' ')
-          echo "MAKEFILE_VERSION=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Release ${{ needs.check-version.outputs.version }}
+          name: ${{ needs.check-version.outputs.version }}
           tag_name: ${{ needs.check-version.outputs.version }}
           body: |
             ## ZundaLink Installer ${{ needs.check-version.outputs.version }}
 
-            Makefile Version: ${{ steps.makefile_version.outputs.MAKEFILE_VERSION }}
+            ### Downloads
 
-            ### 下载
-
-            | 平台 | 文件 |
+            | Platform | File |
             |------|------|
             | Windows x64 | `zundalink-installer-windows-x64.exe` |
             | Linux x64 | `zundalink-installer-linux-x64` |
@@ -287,9 +279,9 @@ jobs:
             | macOS Intel | `zundalink-installer-macos-intel` |
             | macOS ARM64 | `zundalink-installer-macos-arm64` |
 
-            ### 校验和
+            ### Checksums
 
-            请查看 `checksums.txt` 文件验证下载文件的完整性。
+            Please refer to the `checksums.txt` file to verify the integrity of downloaded files.
           files: |
             release/zundalink-installer-windows-x64.exe
             release/zundalink-installer-linux-x64
