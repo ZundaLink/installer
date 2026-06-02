@@ -10,6 +10,14 @@ Zundalink Installer
 
 ## Build
 
+### Windows
+
 ```bash
-cargo build --release
+winget install GnuWin32.Make; make native
+```
+
+### macOS / Linux
+
+```bash
+make native
 ```
