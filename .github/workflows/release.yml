@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - "**"
     tags:
       - "v*"
   workflow_dispatch:
@@ -15,26 +17,39 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Check if version already exists
+  # Check if this is a tag push (for release)
   check-version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.VERSION }}
+      is_tag: ${{ steps.check_tag.outputs.IS_TAG }}
       exists: ${{ steps.check_release.outputs.exists }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check if this is a tag push
+        id: check_tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "IS_TAG=true" >> $GITHUB_OUTPUT
+          else
+            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Get version
         id: get_version
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=dev-${{ github.sha }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Check if release exists
         id: check_release
+        if: steps.check_tag.outputs.IS_TAG == 'true'
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           echo "Checking if release $VERSION exists..."
@@ -56,7 +71,7 @@ jobs:
   build-windows:
     needs: check-version
     runs-on: windows-latest
-    if: needs.check-version.outputs.exists == 'false'
+    if: needs.check-version.outputs.exists != 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -104,7 +119,7 @@ jobs:
   build-linux:
     needs: check-version
     runs-on: ubuntu-latest
-    if: needs.check-version.outputs.exists == 'false'
+    if: needs.check-version.outputs.exists != 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -152,7 +167,7 @@ jobs:
   build-macos:
     needs: check-version
     runs-on: macos-latest
-    if: needs.check-version.outputs.exists == 'false'
+    if: needs.check-version.outputs.exists != 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -216,11 +231,15 @@ jobs:
           name: macos-arm-binary
           path: dist/zundalink-installer-macos-arm64
 
-  # Create Release and upload all binaries
+  # Create Release and upload all binaries (only for tag pushes)
   release:
     needs: [check-version, build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
-    if: needs.check-version.outputs.exists == 'false' && always() && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success'
+    # Only run release job when:
+    # 1. It's a tag push (IS_TAG=true)
+    # 2. Release doesn't already exist
+    # 3. All build jobs succeeded
+    if: needs.check-version.outputs.is_tag == 'true' && needs.check-version.outputs.exists == 'false' && always() && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success'
     permissions:
       contents: write
     steps:
@@ -287,7 +306,7 @@ jobs:
   skip-release:
     needs: check-version
     runs-on: ubuntu-latest
-    if: needs.check-version.outputs.exists == 'true'
+    if: needs.check-version.outputs.is_tag == 'true' && needs.check-version.outputs.exists == 'true'
     steps:
       - name: Skip release
         run: |
