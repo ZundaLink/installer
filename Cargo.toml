@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 # GUI Framework
 egui = { version = "0.24", features = ["default_fonts"] }
-eframe = { version = "0.24", features = ["default"] }
+# Use glow renderer (OpenGL) with software rendering fallback
+eframe = { version = "0.24", default-features = false, features = ["default_fonts", "glow"] }
 
 # Font support
 font-kit = "0.11"
