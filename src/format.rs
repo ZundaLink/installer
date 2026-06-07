@@ -94,9 +94,9 @@ impl DiskFormatter {
         
         log::info!("Running diskpart with script: {}", diskpart_script);
         
-        // Step 3: Execute diskpart
-        let output = create_hidden_command("diskpart")
-            .args(&["/s", script_path])
+        // Step 3: Execute diskpart with UTF-8 encoding to prevent garbled output
+        let output = create_hidden_command("cmd")
+            .args(&["/c", "chcp", "65001", ">nul", "&&", "diskpart", "/s", script_path])
             .output()?;
         
         let stdout = String::from_utf8_lossy(&output.stdout);
